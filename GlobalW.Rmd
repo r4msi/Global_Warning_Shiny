@@ -1,0 +1,571 @@
+---
+title: "Global Warming"
+author: "Manu"
+date: "9/2/2020"
+output:
+  html_document: default
+---
+
+```{r,include=FALSE}
+library(forecast)
+library(fpp2)
+library(tseries)
+library(seasonal)
+library(TSA)
+library(descomponer)
+library(knitr)
+library(ggplot2)
+library(tidyr)
+library(ggthemes)
+library(dplyr)
+library(nortest)
+```
+
+library(forecast)
+library(fpp2)
+library(tseries)
+library(seasonal)
+library(TSA)
+library(descomponer)
+library(knitr)
+library(ggplot2)
+library(tidyr)
+library(ggthemes)
+library(dplyr)
+library(nortest)
+
+The data contains the Global-Mean temperature change by month, available at NASA's website. It gathers the temperature variation from 1880/01 to December 2019/12, however, only data from the last 50 years will be analyzed. 
+
+# 1. Tidying the data.
+
+The first row of the csv was the title of the database so it needs to be skipped.
+
+  * The structure of the data frame is not appropriate for a time series, R will consider it as a time series of 140 observations and 19 variables.
+  * The proper structure for a monthly study is sequential, that is, only one column containing all observations arranged by date. Therefore, values from Jan to Dec, need to be switched into one column. It sounds messy but **tidyr** is quite useful facing those kind of issues. 
+  
+
+```{r}
+global_w <- read.csv("GLB.Ts+dSST.csv",header = T,skip = 1)
+dim(global_w)
+head(global_w)
+```
+
+To switch the columns simply use the t() function which returns the **transpose** of a matrix or data frame.
+
+```{r}
+global_w <- global_w %>% 
+  filter(Year>=1970) %>% 
+  select( -c(J.D:SON))
+
+global_w <- as.data.frame(t(global_w))
+
+head(global_w,2)
+```
+
+
+
+Here, the new columns are named by the years and "Year" row is omitted.
+
+```{r}
+colnames(global_w) = as.character(global_w[1,])
+names(global_w)
+global_w <- global_w[-1,]
+```
+
+Tidyr's gather() function allow to *"nest"* the observation in one column. 
+
+```{r}
+global_w <- gather(global_w, Year, Value)
+global_w %>% head()
+```
+
+```{r}
+global_df <- global_w
+
+library(lubridate)
+```
+
+
+Once the data is cleaned and sorted, just transform it into a time series object.
+
+```{r}
+global_w <- ts(global_w[,"Value"], start = c(1970,1),frequency = 12) 
+```
+
+# 2. Series Decomposition.
+
+As the variance remains constant the decomposition method will be additive:
+
+$\hat{R}_t = y_t - \hat{T}_t - \hat{S}_t$
+
+```{r}
+autoplot(global_w) + geom_line(color="salmon") + theme_solarized_2(light = F) + labs(y="Temperature") 
+```
+
+First things first, in order to know if forecast models will work efficiently, it is essential to observe the variance, trend and seasonality of time series.
+
+  1. There is a positive trend.
+  2. The variance seems to be constant.
+  3. There is way too much seasonality, which is logical because of the climate seasons.
+  4. Conclusion: It is not stationary.
+
+```{r}
+global_w_desc <- decompose(global_w, type="additive")
+autoplot(global_w_desc) + geom_line(color="dodgerblue") +
+  theme_solarized()
+```
+
+Next, the residuals of the decomposition are checked. They are suppose to be "White Noise", that is, they must be normal. 
+
+  - They seem to be normal under Kolmogorov-Smirnov and Shaphiro tests.
+  - In addition, the plot shows they are distributed around 0 with and standard deviation of around 0.2.
+
+```{r}
+autoplot(global_w_desc$random) + geom_line(color="salmon")
+
+shapiro.test(global_w_desc$random )
+lillie.test(global_w_desc$random)
+```
+
+
+Plotting the seasonality by year.
+
+  * It seems that in the latest years the temperature rise is more pronounced in winter.
+
+```{r, fig.width=5, fig.height=5}
+ggseasonplot(ts(global_w[481:600], start = c(2010,1), frequency = 12), polar=T, year.labels = T, year.labels.left = T) + 
+  labs(x="Month", y="Temperature Change", title="Seasonal Plot") 
+
+```
+
+Each 6 months... seasonality.
+
+```{r}
+gperiodograma(ts(global_w[481:600], start = c(2010,1), frequency = 12))
+```
+
+# 3. To Stationary.
+
+Rid trend and Seasonality. 
+
+*Trend:* Just by computing the differences between observations: $x'_t = x_t - x_{t-1}$. 
+*Seasonality:* Differentiating by the last season (m): $x'_t = x_t - x_{t-m}$.
+
+* A stationary time series was achieved, so **SARIMA, Holt-Winters and Neural Networks** can be used.
+
+```{r}
+autoplot(diff(diff(global_w, lag = 12)))
+```
+
+## 3.1 Dickey-Fuller
+
+The time series is Stationary under Dickey-Fuller Test.
+
+Dickey-Fuller test (ADF) is a unit root test for a sample of a time series.  The Increased Dickey-Fuller (ADF) statistic, specific to the test, is a negative number. The more negative it is, the stronger the rejection of the null hypothesis that there is a unitary root for a certain level of trust.
+
+  
+```{r}
+adf.test(diff(diff(global_w,3)))
+```
+
+# 4. Holt-Winters.
+
+Split in train and test.
+
+```{r}
+gw_tr <- window(x = global_w, end = c(2017, 12))
+gw_tst <- window(x = global_w, start = c(2018, 1))
+```
+
+H-W additive model takes into account the level, the trend and the season to compute fit the values, thus, it requires 3 smoothing parameters: $\alpha (level), \beta (Trend), \gamma(Season)$.
+
+So the equations are the following: 
+
+$L_t = \alpha(x_t - S_{t-s}) + (1-\alpha)(L_{t-1} + b_{t-1})$
+$b_{t} = \beta^*(L_t - L_{t-1}) + (1-\beta)b_{t-1}$
+$S_t = \gamma(xt - L_{t-1}- b_{t-1}) +  (1-\gamma)St_{-s}$
+
+Lt = *(alpha) X (today value adjusted by the season) + (1-alpha) X (t-1 estimated value without season)*
+bt = *beta X (estimated slope) + (1-beta) X (Today slope/trend)*
+st = *gamma X (Today season) + (1-gamma) X (s-1 Season ~ last season)*
+
+Fitting the values with $\hat{x_t} = L_t + bt +S_{t+1−s} + z_t$; being Z the residual error.
+
+So in the end the concept is similar to a weighted average... What is more important to compute $\hat{x_t}$? 
+
+  - Today value or estimated value? As shown if the formula if $\alpha$ is 0.99 is giving importance to today value vs. $1-0.99=.001$ * Estimated value, that would not be important and the same with the trend and season. That's why $\alpha (level), \beta (Trend), \gamma(Season)$ are called smoothing parameters.
+  - Today trend or estimated trend? 
+  - This season or last season?
+
+
+Notice that it also exists H-W multiplicative method, used when the variance is not constant through time. $\hat{x_t} = (L_t + bt)*S_{t+1−s} + z_t$
+
+Note that $\alpha, \beta, \gamma$ and initial $Lt_0,bt_0,St_0$ are computed by minimizing the $ \sum_{i=1}^n (x_{ti} - \hat{x}_{ti})^2$.
+
+When fitting the model:
+
+  * $\alpha$ = 0.22 -> More importance to estimated value without seasonality.
+  * $\beta$ ~= 0 -> All the importance to last trend/slope.
+  * $\gamma$ = 0.14 -> More importance to last season.
+
+```{r}
+hw <- hw(gw_tr, h=24, seasonal = "additive", level = c(80,95))
+hw$model
+```
+
+Testing the solution:
+
+```{r}
+round(hw$fitted[1],2)
+# If fitted xt = L0+B0+S0 then;
+round(-0.1705 + 4e-04 + 0.1121, 2)
+```
+
+For xt2, note that $x_t$ is $x_{t-1}$ (0.08), this is the "lag".
+
+```{r}
+hw$x[1] # real observation
+```
+
+$L_t = 0.2193*(0.08 - 0.1121 ) + 0.7807*(-0.1705 + 0.0004); L_t = -0.13$
+$b_{t} = 0.0001*(-0.13 -0.1705) + 0.9999*0.0004; b_t =  0.00037$
+$S_t = 0.1424*(0.08 - (-0.004) - 0.1705) +  0.8676*0.1121; S_t = 0.13$
+
+Fitted values can be mathematically calculated.
+
+```{r}
+lt = 0.2193*(0.08 - 0.1121) + 0.7807*(-0.1705 + 0.0004)
+bt = 0.0001*(lt-0.1705) + 0.9999*0.0004
+st = 0.1424*(0.08 - 0.0004 - -.1705) +  0.8676* 0.1121 # To compute next year (xt+12)
+
+# Used St+1-s -> (Initial S obtained from the fit next to -0.1121).
+round(lt + bt + 0.0492,3)
+round(hw$fitted[2],3)
+```
+
+Accuracy and plots:
+
+  - It's interesting that it just has a 0.09 of RMSE in test while in train has 0.12. That is, the forecast is more accurate than the actual fitting of the aerie. 
+  - It's seems that predicts very well.
+
+```{r}
+autoplot(hw) + autolayer(gw_tst, series = "Real")  + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2020))
+accuracy(hw, gw_tst)
+```
+
+The residuals are also white noise. It obvious that is a good mode.
+
+```{r}
+autoplot(hw$residuals)
+```
+
+# 5. ARIMA.
+
+```{r}
+include_graphics(path = "images/arima.png")
+```
+
+Unfortunately auto.arima() function is not working or it takes way too much time so the best ARIMA has to be identify manually. The data may be too complex for auto.arima() to estimate the model with the lowest AIC.
+
+We show the Auto-correlations $xt-x_{t-1}$ and the Partial auto-correlations $xt-x_{t-k}$ which removes the lags effects. 
+
+$r_{k} = \frac{\sum\limits_{t=k+1}^T (y_{t}-\bar{y})(y_{t-k}-\bar{y})}{\sum\limits_{t=1}^T (y_{t}-\bar{y})^2}$
+
+Notice the similarities with the normal correlation formula. Covariance/variance.
+
+  * As a pike breaks in the ACF, probably there is a MA (1 or 2) for the not seasonal part. In the PACF the auto correlations decrease.
+  * There is 2 significant pikes at lag 12 and 13 in the ACF indicating a MA(2) in the seasonal part. The PACF decrease again.
+  * 2 diff were made, one for the non-seasonal and another for the seasonal.
+
+```{r}
+ggtsdisplay(diff(diff(global_w,12)))
+```
+
+The parameters are estimated by Maximum likelihood estimation. (Coeff. that maximize the probability of the data).
+An ARIMA(0,1,1)(0,1,2)[12] is proposed.
+
+The formula would be the following:
+
+$(1-\beta)*(1-\beta^{12})x_t = (1+\phi\beta)*(1+\theta_1\beta^{12}+\theta_2\beta^{24})z_t$
+$(1-\beta)*(1-\beta^{12})x_t = (1-0.5\beta)*(1-1\beta^{12}+0.6\beta^{24})z_t$
+
+Where $\beta$ is the lag, for example $\beta^{12}=x_{-12}$
+
+```{r}
+ari <- Arima(gw_tr, order = c(0,1,1), seasonal = c(0,1,2))
+ari
+```
+
+White noise in the residuals. Just 2 with significant auto correlation.
+
+The accuracy in test is a little bit better than H-W additive model, but quite similar.
+
+```{r}
+ari_fcst <- forecast(ari, h=24)
+accuracy(ari_fcst, gw_tst)
+checkresiduals(ari)
+```
+
+Here the visual forecast in Train and Test. 
+
+```{r}
+autoplot(ari_fcst) +
+  autolayer(gw_tst, series = "Real") + autolayer(ari$fitted, series="Fitted") + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2020))
+autoplot(ari_fcst) +
+  autolayer(gw_tst, series = "Real") 
+```
+
+# 6. Neural Network
+
+$$NNAR(p,P,k)s$$
+
+  * Where p is the number of lags that the network will take as inputs. For instance NNAR(5,0,0) would take the last five $x_t$ as inputs for the forecast. 
+  * P is the last xt from the same season. 
+  * k represent the number of neurons in the hidden layer.
+  * s represents seasonality.
+
+
+The nnetar function set this p,P,k, but unless k must be optimized with the parameter lambda. As well the repeats parameter that assign the random weights for the neurons.
+
+  * 15 lags as input.
+  * 
+
+```{r}
+set.seed(123)
+nn <- nnetar(gw_tr,15,8,10, lambda = 4, repeats = 4)
+accuracy(forecast(nn,h=24), gw_tst)
+
+
+autoplot(forecast(nn,h=24)) + autolayer(gw_tst, series="real") +  coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2020))
+```
+
+This is the function I created to optimize lambda and repeats.
+
+```{r}
+nnar <- function(train, test, h, repeats) {
+  set.lambda <- seq(1,10, by=1)
+  set.repeats <- seq(1, repeats, by=1)
+  rmse = c()
+  rmse.r = c()
+  
+set.seed(123)
+  for(i in 1:length(set.lambda)) {
+  set.seed(123)
+  x <- nnetar(train, lambda = set.lambda[i], repeats = repeats)
+  ac <- accuracy(forecast(x,h=h), test)
+  rmse = c(rmse, ac[2,2])
+  }
+  
+ggrmse <- data.frame(Number = set.lambda,
+                     RMSE = rmse)
+a = ggplot(ggrmse, aes(Number, RMSE)) +
+  geom_line(color="blue", size=1)
+
+
+lambda.opt = set.lambda[which.min(rmse)]
+
+set.seed(123)
+  for(i in 1:length(set.repeats)) {
+    set.seed(123)
+    x <- nnetar(train, lambda = lambda.opt, repeats = set.repeats[i])
+    ac <- accuracy(forecast(x,h=24), test)
+    rmse.r = c(rmse.r, ac[2,2])
+  }
+ggrmse.r <- data.frame(Number = set.repeats,
+                   RMSE = rmse.r
+                   )
+
+b = ggplot(ggrmse.r, aes(Number, RMSE)) +
+  geom_line(color = "blue", size=1)
+
+
+re.opt = set.repeats[which.min(rmse.r)]
+
+list(a,b,lambda.opt,re.opt)
+
+}
+```
+
+```{r}
+#nnar(gw_tr, gw_tst, 24, 5)
+```
+
+# Predictions.
+
+Now that all models have been trained it's time to forecast.
+
+
+```{r}
+autoplot(hw(global_w, h=60),PI = F) + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025)) 
+```
+
+```{r}
+ari <- Arima(global_w, order = c(0,1,1), seasonal = c(0,1,2))
+autoplot(forecast(ari, h=60), PI=F)+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025))
+```
+
+```{r}
+set.seed(123)
+nn <- nnetar(global_w, 25,2,lambda = 2, repeats = 3)
+autoplot(forecast(nn, h=60))+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025))
+```
+
+
+theme_grey_blue <- shinyDashboardThemeDIY(
+    
+    ### general
+    appFontFamily = "Arial"
+    ,appFontColor = "rgb(128,177,221)"
+    ,primaryFontColor = "rgb(255,255,255)"
+    ,infoFontColor = "rgb(255,255,255)"
+    ,successFontColor = "rgb(255,255,255)"
+    ,warningFontColor = "rgb(255,255,255)"
+    ,dangerFontColor = "rgb(255,255,255)"
+    ,bodyBackColor = cssGradientThreeColors(
+        direction = "down",
+        colorStart = "rgb(52,62,72)",
+        colorMiddle = "rgb52, 62, 90",
+        colorEnd = "rgb52, 62, 90",
+        colorStartPos = 0,
+        colorMiddlePos = 70,
+        colorEndPos = 100
+    )
+    
+    ### header
+    ,logoBackColor = "rgb(70,80,90)"
+    
+    ,headerButtonBackColor = "rgb(70,80,90)"
+    ,headerButtonIconColor = "rgb(25,35,45)"
+    ,headerButtonBackColorHover = "rgb(40,50,60)"
+    ,headerButtonIconColorHover = "rgb(0,0,0)"
+    
+    ,headerBackColor = "rgb(70,80,90)"
+    ,headerBoxShadowColor = ""
+    ,headerBoxShadowSize = "0px 0px 0px"
+    
+    ### sidebar
+    ,sidebarBackColor = cssGradientThreeColors(
+        direction = "down"
+        ,colorStart = "rgb(40,56,107)"
+        ,colorMiddle = "rgb(71,59,109)"
+        ,colorEnd = "rgb(100,88,149)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 70
+        ,colorEndPos = 100
+    )
+    
+    ,sidebarShadowRadius = ""
+    ,sidebarPadding = 10
+    ,sidebarShadowColor = "0px 0px 0px"
+    
+    ,sidebarMenuBackColor = cssGradientThreeColors(
+        direction = "right"
+        ,colorStart = "rgb(48,103,157)"
+        ,colorMiddle = "rgb(65,79,129)"
+        ,colorEnd = "rgb(55,70,120)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 30
+        ,colorEndPos = 100
+    )
+    ,sidebarMenuPadding = 5
+    ,sidebarMenuBorderRadius = 20
+    
+    ,sidebarUserTextColor = "rgb(128,177,221)"
+    
+    ,sidebarSearchBackColor = "rgb(40,70,115)"
+    ,sidebarSearchIconColor = "rgb(50,115,145)"
+    ,sidebarSearchBorderColor = "rgb(30,60,105)"
+    
+    ,sidebarTabTextColor = "rgb(128,177,221)"
+    ,sidebarTabTextSize = 13
+    ,sidebarTabBorderStyle = "none"
+    ,sidebarTabBorderColor = "none"
+    ,sidebarTabBorderWidth = 0
+    
+    ,sidebarTabBackColorSelected = cssGradientThreeColors(
+        direction = "right"
+        ,colorStart = "rgb(56,137,189)"
+        ,colorMiddle = "rgb(65,95,145)"
+        ,colorEnd = "rgb(68,84,137)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 50
+        ,colorEndPos = 100
+    )
+    ,sidebarTabTextColorSelected = "rgb(255,255,255)"
+    ,sidebarTabRadiusSelected = "30px"
+    
+    ,sidebarTabBackColorHover = cssGradientThreeColors(
+        direction = "right"
+        ,colorStart = "rgb(56,137,189)"
+        ,colorMiddle = "rgb(65,95,145)"
+        ,colorEnd = "rgb(68,84,137)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 50
+        ,colorEndPos = 100
+    )
+    ,sidebarTabTextColorHover = "rgb(255,255,255)"
+    ,sidebarTabBorderStyleHover = "none"
+    ,sidebarTabBorderColorHover = "none"
+    ,sidebarTabBorderWidthHover = 0
+    ,sidebarTabRadiusHover = "30px"
+    
+    ### boxes
+    ,boxBackColor = cssGradientThreeColors(
+        direction = "right"
+        ,colorStart = "rgb(70,75,125)"
+        ,colorMiddle = "rgb(65,79,129)"
+        ,colorEnd = "rgb(55,70,120)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 30
+        ,colorEndPos = 100
+    )
+    ,boxBorderRadius = 15
+    ,boxShadowSize = "0px 0px 0px"
+    ,boxShadowColor = ""
+    ,boxTitleSize = 16
+    ,boxDefaultColor = "rgb(49,56,107)"
+    ,boxPrimaryColor = "rgb(141,192,241)"
+    ,boxInfoColor = "rgb(20,100,160)"
+    ,boxSuccessColor = "rgb(64,186,170)"
+    ,boxWarningColor = "rgb(255,217,144)"
+    ,boxDangerColor = "rgb(249,144,144)"
+    
+    ,tabBoxTabColor = "rgb(80,95,155)"
+    ,tabBoxTabTextSize = 14
+    ,tabBoxTabTextColor = "rgb(128,177,221)"
+    ,tabBoxTabTextColorSelected = "rgb(255,255,255)"
+    ,tabBoxBackColor = cssGradientThreeColors(
+        direction = "right"
+        ,colorStart = "rgb(70,75,125)"
+        ,colorMiddle = "rgb(65,79,129)"
+        ,colorEnd = "rgb(55,70,120)"
+        ,colorStartPos = 0
+        ,colorMiddlePos = 30
+        ,colorEndPos = 100
+    )
+    ,tabBoxHighlightColor = "rgb(80,95,155)"
+    ,tabBoxBorderRadius = 15
+    
+    ### inputs
+    ,buttonBackColor = "rgb(230,230,230)"
+    ,buttonTextColor = "rgb(0,0,0)"
+    ,buttonBorderColor = "rgb(50,50,50)"
+    ,buttonBorderRadius = 5
+    
+    ,buttonBackColorHover = "rgb(180,180,180)"
+    ,buttonTextColorHover = "rgb(50,50,50)"
+    ,buttonBorderColorHover = "rgb(50,50,50)"
+    
+    ,textboxBackColor = "rgb(68,80,90)"
+    ,textboxBorderColor = "rgb(76,90,103)"
+    ,textboxBorderRadius = 5
+    ,textboxBackColorSelect = "rgb(80,90,100)"
+    ,textboxBorderColorSelect = "rgb(255,255,255)"
+    
+    ### tables
+    ,tableBackColor = "transparent"
+    ,tableBorderColor = "rgb(80,95,155)"
+    ,tableBorderTopSize = 1
+    ,tableBorderRowSize = 1
+    
+)
