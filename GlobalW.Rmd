@@ -41,7 +41,7 @@ The data contains the Global-Mean temperature change by month, available at NASA
 The first row of the csv was the title of the database so it needs to be skipped.
 
   * The structure of the data frame is not appropriate for a time series, R will consider it as a time series of 140 observations and 19 variables.
-  * The proper structure for a monthly study is sequential, that is, only one column containing all observations arranged by date. Therefore, values from Jan to Dec, need to be switched into one column. It sounds messy but **tidyr** is quite useful facing those kind of issues. 
+  * The proper structure for a monthly study is sequential, that is, only one column containing all observations arranged by date. Therefore, values from Jan to Dec, need to be switched into one column. It sounds messy but **tidyr** is quite useful facing those kinds of issues. 
   
 
 ```{r}
@@ -115,7 +115,7 @@ autoplot(global_w_desc) + geom_line(color="dodgerblue") +
   theme_solarized()
 ```
 
-Next, the residuals of the decomposition are checked. They are suppose to be "White Noise", that is, they must be normal. 
+Next, the residuals of the decomposition are checked. They are supposed to be "White Noise", that is, they must be normal. 
 
   - They seem to be normal under Kolmogorov-Smirnov and Shaphiro tests.
   - In addition, the plot shows they are distributed around 0 with and standard deviation of around 0.2.
@@ -138,7 +138,6 @@ ggseasonplot(ts(global_w[481:600], start = c(2010,1), frequency = 12), polar=T, 
 
 ```
 
-Each 6 months... seasonality.
 
 ```{r}
 gperiodograma(ts(global_w[481:600], start = c(2010,1), frequency = 12))
@@ -181,9 +180,11 @@ H-W additive model takes into account the level, the trend and the season to com
 
 So the equations are the following: 
 
-$L_t = \alpha(x_t - S_{t-s}) + (1-\alpha)(L_{t-1} + b_{t-1})$
-$b_{t} = \beta^*(L_t - L_{t-1}) + (1-\beta)b_{t-1}$
-$S_t = \gamma(xt - L_{t-1}- b_{t-1}) +  (1-\gamma)St_{-s}$
+  * $L_t = \alpha(x_t - S_{t-s}) + (1-\alpha)(L_{t-1} + b_{t-1})$
+
+  * $b_{t} = \beta^*(L_t - L_{t-1}) + (1-\beta)b_{t-1}$
+  
+  * $S_t = \gamma(xt - L_{t-1}- b_{t-1}) +  (1-\gamma)St_{-s}$
 
 Lt = *(alpha) X (today value adjusted by the season) + (1-alpha) X (t-1 estimated value without season)*
 bt = *beta X (estimated slope) + (1-beta) X (Today slope/trend)*
@@ -200,7 +201,7 @@ So in the end the concept is similar to a weighted average... What is more impor
 
 Notice that it also exists H-W multiplicative method, used when the variance is not constant through time. $\hat{x_t} = (L_t + bt)*S_{t+1−s} + z_t$
 
-Note that $\alpha, \beta, \gamma$ and initial $Lt_0,bt_0,St_0$ are computed by minimizing the $ \sum_{i=1}^n (x_{ti} - \hat{x}_{ti})^2$.
+Note that $\alpha, \beta, \gamma$ and initial $Lt_0,bt_0,St_0$ are computed by minimizing the $\sum_{i=1}^n (x_{ti} - \hat{x}_{ti})^2$.
 
 When fitting the model:
 
@@ -245,8 +246,8 @@ round(hw$fitted[2],3)
 
 Accuracy and plots:
 
-  - It's interesting that it just has a 0.09 of RMSE in test while in train has 0.12. That is, the forecast is more accurate than the actual fitting of the aerie. 
-  - It's seems that predicts very well.
+  - It's interesting that it just has a 0.09 of RMSE in test while in train has 0.12. That is, the forecast is more accurate than the actual fitting of the series. 
+  - It seems that H-W predicts very well.
 
 ```{r}
 autoplot(hw) + autolayer(gw_tst, series = "Real")  + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2020))
@@ -274,7 +275,7 @@ $r_{k} = \frac{\sum\limits_{t=k+1}^T (y_{t}-\bar{y})(y_{t-k}-\bar{y})}{\sum\limi
 Notice the similarities with the normal correlation formula. Covariance/variance.
 
   * As a pike breaks in the ACF, probably there is a MA (1 or 2) for the not seasonal part. In the PACF the auto correlations decrease.
-  * There is 2 significant pikes at lag 12 and 13 in the ACF indicating a MA(2) in the seasonal part. The PACF decrease again.
+  * There are 2 significant pikes at lag 12 and 13 in the ACF indicating a MA(2) in the seasonal part. The PACF decrease again.
   * 2 diff were made, one for the non-seasonal and another for the seasonal.
 
 ```{r}
@@ -321,18 +322,24 @@ $$NNAR(p,P,k)s$$
 
   * Where p is the number of lags that the network will take as inputs. For instance NNAR(5,0,0) would take the last five $x_t$ as inputs for the forecast. 
   * P is the last xt from the same season. 
-  * k represent the number of neurons in the hidden layer.
+  * k represents the number of neurons in the hidden layer.
   * s represents seasonality.
 
 
 The nnetar function set this p,P,k, but unless k must be optimized with the parameter lambda. As well the repeats parameter that assign the random weights for the neurons.
 
   * 15 lags as input.
-  * 
+  
+  
+```{r}
+library(astsa)
+```
+
+
 
 ```{r}
 set.seed(123)
-nn <- nnetar(gw_tr,15,8,10, lambda = 4, repeats = 4)
+nn <- nnetar(gw_tr, 15,1,8, lambda = 2, repeats = 3)
 accuracy(forecast(nn,h=24), gw_tst)
 
 
@@ -343,7 +350,7 @@ This is the function I created to optimize lambda and repeats.
 
 ```{r}
 nnar <- function(train, test, h, repeats) {
-  set.lambda <- seq(1,10, by=1)
+  set.lambda <- seq(1,10, by=.1)
   set.repeats <- seq(1, repeats, by=1)
   rmse = c()
   rmse.r = c()
@@ -387,185 +394,26 @@ list(a,b,lambda.opt,re.opt)
 ```
 
 ```{r}
-#nnar(gw_tr, gw_tst, 24, 5)
+# nnar(gw_tr, gw_tst, 24, 30)
 ```
 
 # Predictions.
 
-Now that all models have been trained it's time to forecast.
+Now that all models have been trained it's time to forecast the next year!
 
 
 ```{r}
-autoplot(hw(global_w, h=60),PI = F) + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025)) 
+autoplot(hw(global_w, h=12),PI = F) + coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2021)) 
 ```
 
 ```{r}
 ari <- Arima(global_w, order = c(0,1,1), seasonal = c(0,1,2))
-autoplot(forecast(ari, h=60), PI=F)+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025))
+autoplot(forecast(ari, h=12), PI=F)+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2021))
 ```
 
 ```{r}
 set.seed(123)
-nn <- nnetar(global_w, 25,2,lambda = 2, repeats = 3)
-autoplot(forecast(nn, h=60))+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2025))
+nn <- nnetar(global_w, 15,1,8,lambda = 2, repeats = 3)
+autoplot(forecast(nn, h=12))+ coord_cartesian(ylim=c(-0.5,1.5), xlim = c(2016,2021))
 ```
 
-
-theme_grey_blue <- shinyDashboardThemeDIY(
-    
-    ### general
-    appFontFamily = "Arial"
-    ,appFontColor = "rgb(128,177,221)"
-    ,primaryFontColor = "rgb(255,255,255)"
-    ,infoFontColor = "rgb(255,255,255)"
-    ,successFontColor = "rgb(255,255,255)"
-    ,warningFontColor = "rgb(255,255,255)"
-    ,dangerFontColor = "rgb(255,255,255)"
-    ,bodyBackColor = cssGradientThreeColors(
-        direction = "down",
-        colorStart = "rgb(52,62,72)",
-        colorMiddle = "rgb52, 62, 90",
-        colorEnd = "rgb52, 62, 90",
-        colorStartPos = 0,
-        colorMiddlePos = 70,
-        colorEndPos = 100
-    )
-    
-    ### header
-    ,logoBackColor = "rgb(70,80,90)"
-    
-    ,headerButtonBackColor = "rgb(70,80,90)"
-    ,headerButtonIconColor = "rgb(25,35,45)"
-    ,headerButtonBackColorHover = "rgb(40,50,60)"
-    ,headerButtonIconColorHover = "rgb(0,0,0)"
-    
-    ,headerBackColor = "rgb(70,80,90)"
-    ,headerBoxShadowColor = ""
-    ,headerBoxShadowSize = "0px 0px 0px"
-    
-    ### sidebar
-    ,sidebarBackColor = cssGradientThreeColors(
-        direction = "down"
-        ,colorStart = "rgb(40,56,107)"
-        ,colorMiddle = "rgb(71,59,109)"
-        ,colorEnd = "rgb(100,88,149)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 70
-        ,colorEndPos = 100
-    )
-    
-    ,sidebarShadowRadius = ""
-    ,sidebarPadding = 10
-    ,sidebarShadowColor = "0px 0px 0px"
-    
-    ,sidebarMenuBackColor = cssGradientThreeColors(
-        direction = "right"
-        ,colorStart = "rgb(48,103,157)"
-        ,colorMiddle = "rgb(65,79,129)"
-        ,colorEnd = "rgb(55,70,120)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 30
-        ,colorEndPos = 100
-    )
-    ,sidebarMenuPadding = 5
-    ,sidebarMenuBorderRadius = 20
-    
-    ,sidebarUserTextColor = "rgb(128,177,221)"
-    
-    ,sidebarSearchBackColor = "rgb(40,70,115)"
-    ,sidebarSearchIconColor = "rgb(50,115,145)"
-    ,sidebarSearchBorderColor = "rgb(30,60,105)"
-    
-    ,sidebarTabTextColor = "rgb(128,177,221)"
-    ,sidebarTabTextSize = 13
-    ,sidebarTabBorderStyle = "none"
-    ,sidebarTabBorderColor = "none"
-    ,sidebarTabBorderWidth = 0
-    
-    ,sidebarTabBackColorSelected = cssGradientThreeColors(
-        direction = "right"
-        ,colorStart = "rgb(56,137,189)"
-        ,colorMiddle = "rgb(65,95,145)"
-        ,colorEnd = "rgb(68,84,137)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 50
-        ,colorEndPos = 100
-    )
-    ,sidebarTabTextColorSelected = "rgb(255,255,255)"
-    ,sidebarTabRadiusSelected = "30px"
-    
-    ,sidebarTabBackColorHover = cssGradientThreeColors(
-        direction = "right"
-        ,colorStart = "rgb(56,137,189)"
-        ,colorMiddle = "rgb(65,95,145)"
-        ,colorEnd = "rgb(68,84,137)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 50
-        ,colorEndPos = 100
-    )
-    ,sidebarTabTextColorHover = "rgb(255,255,255)"
-    ,sidebarTabBorderStyleHover = "none"
-    ,sidebarTabBorderColorHover = "none"
-    ,sidebarTabBorderWidthHover = 0
-    ,sidebarTabRadiusHover = "30px"
-    
-    ### boxes
-    ,boxBackColor = cssGradientThreeColors(
-        direction = "right"
-        ,colorStart = "rgb(70,75,125)"
-        ,colorMiddle = "rgb(65,79,129)"
-        ,colorEnd = "rgb(55,70,120)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 30
-        ,colorEndPos = 100
-    )
-    ,boxBorderRadius = 15
-    ,boxShadowSize = "0px 0px 0px"
-    ,boxShadowColor = ""
-    ,boxTitleSize = 16
-    ,boxDefaultColor = "rgb(49,56,107)"
-    ,boxPrimaryColor = "rgb(141,192,241)"
-    ,boxInfoColor = "rgb(20,100,160)"
-    ,boxSuccessColor = "rgb(64,186,170)"
-    ,boxWarningColor = "rgb(255,217,144)"
-    ,boxDangerColor = "rgb(249,144,144)"
-    
-    ,tabBoxTabColor = "rgb(80,95,155)"
-    ,tabBoxTabTextSize = 14
-    ,tabBoxTabTextColor = "rgb(128,177,221)"
-    ,tabBoxTabTextColorSelected = "rgb(255,255,255)"
-    ,tabBoxBackColor = cssGradientThreeColors(
-        direction = "right"
-        ,colorStart = "rgb(70,75,125)"
-        ,colorMiddle = "rgb(65,79,129)"
-        ,colorEnd = "rgb(55,70,120)"
-        ,colorStartPos = 0
-        ,colorMiddlePos = 30
-        ,colorEndPos = 100
-    )
-    ,tabBoxHighlightColor = "rgb(80,95,155)"
-    ,tabBoxBorderRadius = 15
-    
-    ### inputs
-    ,buttonBackColor = "rgb(230,230,230)"
-    ,buttonTextColor = "rgb(0,0,0)"
-    ,buttonBorderColor = "rgb(50,50,50)"
-    ,buttonBorderRadius = 5
-    
-    ,buttonBackColorHover = "rgb(180,180,180)"
-    ,buttonTextColorHover = "rgb(50,50,50)"
-    ,buttonBorderColorHover = "rgb(50,50,50)"
-    
-    ,textboxBackColor = "rgb(68,80,90)"
-    ,textboxBorderColor = "rgb(76,90,103)"
-    ,textboxBorderRadius = 5
-    ,textboxBackColorSelect = "rgb(80,90,100)"
-    ,textboxBorderColorSelect = "rgb(255,255,255)"
-    
-    ### tables
-    ,tableBackColor = "transparent"
-    ,tableBorderColor = "rgb(80,95,155)"
-    ,tableBorderTopSize = 1
-    ,tableBorderRowSize = 1
-    
-)

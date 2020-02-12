@@ -6,7 +6,6 @@ library(shinydashboardPlus)
 library(plotly)
 library(ggplot2)
 library(forecast)
-library(shiny)
 library(ggthemes)
 
 lb <- shinyDashboardLogoDIY(
@@ -336,7 +335,7 @@ body <- dashboardBody(
                 ,gradientBox(
                     title = "Arima[12]"
                     ,icon = "fa fa-bar-chart "
-                    ,width = 9
+                    , width = 6
                     ,gradientColor = "teal"
                     ,boxToolSize = "sm"
                     ,footer = selectInput(inputId = "arimasinput"
@@ -350,65 +349,27 @@ body <- dashboardBody(
                                               "(2,2,2)(2,3,2)")
                                           ,selected = "(2,2,2)(2,3,2)"
 
-                    ), br(), "Select created ARIMAs or try yours! Notice that high numbers may not work.", br(),
+                    ), br(),br(),"Select created ARIMAs or try yours! Notice that high numbers may not work.", br(),
                     "Recall that lowecase letters are the not seasonal part, being p(AR), d(diff), q(MA)", br(), 
-                    "Uppercase letters stand for the Seasonal part, being P(AR), D(DIFF), Q(MA)."
+                    "Uppercase letters stand for the Seasonal part, being P(AR), D(DIFF), Q(MA).", br(),br(),br()
 
                 )
-                    ,fluidRow(column(width = 3,
-                            box(numericInput(
-                                inputId = "p"
-                                ,min = 0
-                                ,max = 2
-                                ,value = 0
-                                ,label = "p"
-                                ,width = 60
-                            )
-                            ,numericInput(
-                                inputId = "d"
-                                ,min = 0
-                                ,max = 3
-                                ,value = 0
-                                ,label = "d"
-                                ,width = 60
-                            )
-                            ,numericInput(
-                                inputId = "q"
-                                ,min = 0
-                                ,max = 2
-                                ,value = 0
-                                ,label = "q"
-                                ,width = 60
-                            )
-                            )
-                            ,box(numericInput(
-                                inputId = "P"
-                                ,min = 0
-                                ,max = 2
-                                ,value = 0
-                                ,label = "P"
-                                ,width = 60
-                            )
-                            ,numericInput(
-                                inputId = "D"
-                                ,min = 0
-                                ,max = 3
-                                ,value = 0
-                                ,label = "D"
-                                ,width = 60
-                            )
-                            ,numericInput(
-                                inputId = "Q"
-                                ,min = 0
-                                ,max = 2
-                                ,value = 0
-                                ,label = "Q"
-                                ,width = 60
-                            )
-                            )
+              
+              ,fluidRow(
+                gradientBox(title = "Your Arima"
+                            ,gradientColor = "orange"
+                            ,width = 6
                             
+                  ,column(width = 4,
+                         sliderInput(inputId = "p", label ="p", min = 0, max=2,value = 0),sliderInput(inputId = "D", label="D",min= 0, max=2, value=0)
+                  ),
+                  column(width = 4, 
+                         sliderInput(inputId = "q", label ="q", min=0, max=2, value =0),sliderInput(inputId = "P", label="P",min= 0, max=2, value =0)
+                  ),
+                  column(width =4,sliderInput(inputId = "d", label= "d",min= 0, max=3, value =0),sliderInput(inputId = "Q", label="Q",min= 0, max=2, value=0))
+                ))
                             
-                    ))
+                    
                     
                 
                 ,widgetUserBox(
@@ -417,6 +378,7 @@ body <- dashboardBody(
                     ,background = T
                     ,backgroundUrl = "https://images.pexels.com/photos/531880/pexels-photo-531880.jpeg?auto=compress&cs=tinysrgb&h=350"
                     ,width = 12
+                    ,footer_padding = F
                     
                     
                     ,footer = plotlyOutput("ar")
